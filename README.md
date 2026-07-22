@@ -5,8 +5,8 @@ Works over **any network** (WiFi, hotspot, even cellular) using WebRTC peer-to-p
 
 ## 🌐 Live Demo
 
-> **[Open Control Panel →](https://YOUR-USERNAME.github.io/iphone-webcam/)**  
-> *(Replace with your GitHub Pages URL after deployment)*
+> **[Open Control Panel →](https://imsanju02k.github.io/iphone-webcam/)**  
+> *(Live GitHub Pages Control Panel)*
 
 ---
 
