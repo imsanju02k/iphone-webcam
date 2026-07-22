@@ -31,14 +31,15 @@
 
     #overlay h2 {
       font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-      font-size:0.95rem; font-weight:500; color:#475569;
+      font-size:1rem; font-weight:500; color:#475569;
     }
     #overlay p {
       font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-      font-size:0.78rem; color:#334155; text-align:center; line-height:1.6; max-width:280px;
+      font-size:0.78rem; color:#334155; text-align:center;
+      line-height:1.6; max-width:280px;
     }
     #overlay p strong { color:#64748b; }
-    #retryBadge {
+    #statusBadge {
       font-family:monospace; font-size:0.72rem; color:#1e293b;
       background:#0f172a; padding:4px 12px; border-radius:6px;
       border:1px solid #1e293b;
@@ -50,14 +51,28 @@
 <div id="overlay">
   <div class="spin"></div>
   <h2 id="overlayTitle">Waiting for camera…</h2>
-  <p>Open <strong>camera.html</strong> on iPhone<br/>then tap <strong>Start Streaming</strong></p>
-  <div id="retryBadge">connecting…</div>
+  <p>Tap <strong>Start Streaming</strong> on iPhone<br/>and make sure this viewer URL has <strong>?s=</strong> param</p>
+  <div id="statusBadge">connecting…</div>
 </div>
 
 <script>
   const params    = new URLSearchParams(location.search);
   const sessionId = params.get('s');
-  const CAMERA_PEER_ID = `ipcam-${sessionId}`;
+
+  if (!sessionId) {
+    document.getElementById('overlayTitle').textContent = 'No session ID';
+    document.getElementById('overlay').querySelector('p').innerHTML =
+      'Add <strong>?s=SESSION_ID</strong> to this URL.<br/>Copy the OBS URL from the control panel.';
+    document.getElementById('statusBadge').textContent = 'missing ?s= param';
+  } else {
+    startViewer();
+  }
+
+  // ── Peer ID ────────────────────────────────────────────────────────────────
+  // Viewer registers as "ipcam-v-{sessionId}" — camera calls this fixed ID.
+  // Viewer NEVER needs to provide a stream — just answer and receive.
+  // This works perfectly in OBS Browser Source (no canvas.captureStream needed).
+  const VIEWER_PEER_ID = `ipcam-v-${sessionId}`;
 
   const PEER_CFG = {
     host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
@@ -78,133 +93,93 @@
   let retryTimer  = null;
   let retryCount  = 0;
 
-  if (!sessionId) {
-    document.getElementById('overlayTitle').textContent = 'No session ID';
-    document.getElementById('overlay').querySelector('p').textContent =
-      'Open this page from the control panel OBS URL.';
-  } else {
-    startViewer();
-  }
-
   function startViewer() {
     if (viewerPeer && !viewerPeer.destroyed) viewerPeer.destroy();
-    viewerPeer = new Peer(PEER_CFG); // random ID — viewer doesn't need fixed ID
+
+    viewerPeer = new Peer(VIEWER_PEER_ID, PEER_CFG);
 
     viewerPeer.on('open', () => {
-      console.log('[Viewer] Peer ready:', viewerPeer.id);
-      callCamera();
+      retryCount = 0;
+      setStatus('Waiting for camera…', 'ready');
+      console.log('[Viewer] Registered as:', VIEWER_PEER_ID);
     });
 
+    // ── Camera calls viewer with its stream ───────────────────────────────
+    // All viewer has to do: answer (no stream from viewer side) → receive camera stream
+    viewerPeer.on('call', (call) => {
+      clearTimeout(retryTimer);
+      console.log('[Viewer] Incoming call from camera');
+
+      if (activeCall) activeCall.close();
+      activeCall = call;
+
+      // Answer without providing any stream — camera sends us its stream
+      call.answer();
+
+      call.on('stream', (remoteStream) => {
+        console.log('[Viewer] Stream received! Tracks:', remoteStream.getTracks().length);
+
+        const vid = document.getElementById('video');
+        vid.srcObject = remoteStream;
+        vid.play().catch(e => console.warn('play():', e));
+
+        document.getElementById('overlay').classList.add('hidden');
+        bc?.postMessage({ type: 'live' });
+      });
+
+      call.on('close', () => {
+        console.log('[Viewer] Call ended');
+        document.getElementById('video').srcObject = null;
+        document.getElementById('overlay').classList.remove('hidden');
+        setStatus('Camera stopped…', 'waiting');
+        bc?.postMessage({ type: 'waiting' });
+        activeCall = null;
+      });
+
+      call.on('error', (err) => {
+        console.warn('[Viewer] Call error:', err);
+        document.getElementById('video').srcObject = null;
+        document.getElementById('overlay').classList.remove('hidden');
+        setStatus('Stream error, waiting…', 'waiting');
+        activeCall = null;
+      });
+    });
+
+    // Handle peer errors — retry registering after backoff
     viewerPeer.on('error', (err) => {
-      console.warn('[Viewer] Peer error:', err.type);
-      showWaiting(`Error (${err.type}), retrying…`);
-      retryTimer = setTimeout(startViewer, 4000);
+      console.warn('[Viewer] Peer error:', err.type, err.message);
+
+      if (err.type === 'unavailable-id') {
+        // Old viewer session still registered on PeerJS — wait and retry
+        retryCount++;
+        const delay = Math.min(retryCount * 4, 20);
+        setStatus(`Session busy, retrying in ${delay}s…`, 'retrying');
+        retryTimer = setTimeout(startViewer, delay * 1000);
+      } else if (['network','server-error','socket-error'].includes(err.type)) {
+        setStatus('Connection lost, retrying…', 'retrying');
+        retryTimer = setTimeout(startViewer, 5000);
+      } else {
+        // Other errors (peer-unavailable shouldn't happen since we wait for camera to call us)
+        setStatus(`Error: ${err.type}`, 'error');
+        retryTimer = setTimeout(startViewer, 6000);
+      }
     });
 
     viewerPeer.on('disconnected', () => {
-      showWaiting('Reconnecting…');
-      setTimeout(() => { viewerPeer?.reconnect(); }, 2000);
+      setStatus('Reconnecting…', 'retrying');
+      setTimeout(() => {
+        if (viewerPeer && !viewerPeer.destroyed) viewerPeer.reconnect();
+      }, 2000);
     });
   }
 
-  // ── KEY CHANGE: viewer CALLS the camera (camera answers with its stream) ──
-  // We provide a minimal empty canvas stream so WebRTC can initiate a connection.
-  // The camera answers with its live camera stream.
-  function createEmptyStream() {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 2; canvas.height = 2;
-      const ctx = canvas.getContext('2d');
-      ctx.fillRect(0, 0, 2, 2); // tiny black frame
-      return canvas.captureStream(1); // 1 fps, minimal overhead
-    } catch(e) {
-      // Fallback: silent AudioContext stream (for browsers blocking captureStream)
-      try {
-        const ac = new (window.AudioContext || window.webkitAudioContext)();
-        const dest = ac.createMediaStreamDestination();
-        return dest.stream;
-      } catch(_) {
-        return null;
-      }
-    }
-  }
-
-  function callCamera() {
-    clearTimeout(retryTimer);
-    activeCall?.close();
-    activeCall = null;
-
-    if (!viewerPeer || viewerPeer.destroyed) { startViewer(); return; }
-
-    retryCount++;
-    setRetryBadge();
-    document.getElementById('overlayTitle').textContent = 'Waiting for camera…';
-    console.log(`[Viewer] Calling camera (attempt ${retryCount})`);
-
-    const emptyStream = createEmptyStream();
-    if (!emptyStream) {
-      // If we can't create empty stream, retry later
-      retryTimer = setTimeout(callCamera, 3000); return;
-    }
-
-    try {
-      activeCall = viewerPeer.call(CAMERA_PEER_ID, emptyStream, {
-        // No specific constraints — camera side controls resolution
-      });
-    } catch(e) {
-      console.warn('[Viewer] call() error:', e);
-      retryTimer = setTimeout(callCamera, 3000); return;
-    }
-
-    if (!activeCall) {
-      retryTimer = setTimeout(callCamera, 3000); return;
-    }
-
-    activeCall.on('stream', (remoteStream) => {
-      console.log('[Viewer] Stream received! Tracks:', remoteStream.getTracks().length);
-      const vid = document.getElementById('video');
-      vid.srcObject = remoteStream;
-      vid.play().catch(() => {});
-      document.getElementById('overlay').classList.add('hidden');
-      bc?.postMessage({ type: 'live' });
-      retryCount = 0;
-    });
-
-    activeCall.on('close', () => {
-      console.log('[Viewer] Call closed');
-      showWaiting('Camera stopped…');
-      bc?.postMessage({ type: 'waiting' });
-      activeCall = null;
-      retryTimer = setTimeout(callCamera, 2000);
-    });
-
-    activeCall.on('error', (err) => {
-      console.warn('[Viewer] Call error:', err);
-      showWaiting('Stream error, retrying…');
-      activeCall = null;
-      retryTimer = setTimeout(callCamera, 3000);
-    });
-
-    // Camera hasn't answered in 12s → it might not be streaming yet, retry
-    // (Camera buffers our call and answers when user taps Start Streaming)
-    retryTimer = setTimeout(() => {
-      const vid = document.getElementById('video');
-      if (!vid.srcObject || vid.srcObject.getTracks().length === 0) {
-        console.log('[Viewer] No stream in 12s, retrying call…');
-        callCamera();
-      }
-    }, 12000);
-  }
-
-  function showWaiting(msg) {
-    document.getElementById('video').srcObject = null;
-    document.getElementById('overlay').classList.remove('hidden');
-    document.getElementById('overlayTitle').textContent = msg || 'Waiting for camera…';
-  }
-
-  function setRetryBadge() {
-    document.getElementById('retryBadge').textContent =
-      retryCount <= 1 ? 'connecting…' : `retry #${retryCount}`;
+  function setStatus(msg, state) {
+    document.getElementById('overlayTitle').textContent =
+      state === 'ready'    ? 'Waiting for camera…' :
+      state === 'retrying' ? 'Reconnecting…' :
+      state === 'error'    ? 'Connection error' :
+      msg;
+    document.getElementById('statusBadge').textContent = msg;
   }
 </script>
 </body>

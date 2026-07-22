@@ -19,7 +19,6 @@
       height:100dvh; display:flex; flex-direction:column;
       overflow:hidden; user-select:none; -webkit-user-select:none;
     }
-
     .screen {
       position:fixed; inset:0; display:flex; flex-direction:column;
       align-items:center; justify-content:center;
@@ -31,7 +30,6 @@
     .screen h2 { font-size:1.25rem; font-weight:700; }
     .screen p  { font-size:0.85rem; color:var(--muted); line-height:1.65; max-width:300px; }
     .screen p strong { color:var(--text); }
-
     .steps-card {
       text-align:left; width:100%; max-width:310px;
       background:var(--surface); border-radius:14px; padding:14px 18px;
@@ -43,7 +41,6 @@
     }
     .steps-card li:last-child { border:none; }
     .steps-card li span { color:var(--text); font-weight:600; }
-
     .action-btn {
       margin-top:6px; padding:14px 36px; border-radius:14px; border:none;
       background:linear-gradient(135deg,var(--accent),var(--accent2));
@@ -53,8 +50,6 @@
       -webkit-tap-highlight-color:transparent; transition:transform 0.15s;
     }
     .action-btn:active { transform:scale(0.95); }
-
-    /* Connecting overlay */
     #connectingOverlay {
       position:fixed; inset:0; background:rgba(3,7,18,0.85);
       display:flex; flex-direction:column;
@@ -69,21 +64,17 @@
     }
     @keyframes spin { to { transform:rotate(360deg); } }
     #connectMsg { font-size:0.85rem; color:var(--muted); text-align:center; max-width:260px; }
-
-    /* Camera view */
     #camView { display:none; flex:1; flex-direction:column; height:100dvh; }
     #vWrap   { flex:1; position:relative; background:#000; overflow:hidden; }
     #vid     { width:100%; height:100%; object-fit:cover; }
     #vid.mirror { transform:scaleX(-1); }
-
     .cbar {
       position:absolute; top:0; left:0; right:0; height:3px;
       background:transparent; transform-origin:left; transform:scaleX(0); transition:0.45s;
     }
     .cbar.connecting { background:var(--yellow); transform:scaleX(0.65); animation:barpulse 1s ease-in-out infinite; }
-    .cbar.live       { background:var(--green);  transform:scaleX(1); animation:none; }
+    .cbar.live       { background:var(--green); transform:scaleX(1); animation:none; }
     @keyframes barpulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-
     .hud {
       position:absolute; top:0; left:0; right:0; padding:14px 16px;
       display:flex; justify-content:space-between; align-items:flex-start;
@@ -101,7 +92,6 @@
     .hstats { display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
     .hstat  { font-size:0.69rem; background:rgba(0,0,0,0.5); backdrop-filter:blur(6px); border-radius:6px; padding:3px 8px; color:var(--muted); }
     .hstat strong { color:var(--text); }
-
     .vc {
       position:absolute; top:14px; left:50%; transform:translateX(-50%);
       background:rgba(16,185,129,0.14); backdrop-filter:blur(8px);
@@ -115,7 +105,6 @@
       padding:4px 9px; font-size:0.68rem; font-weight:600;
     }
     .resbadge .rl { color:var(--accent); }
-
     .ctrls {
       position:absolute; bottom:0; left:0; right:0;
       padding:18px 24px calc(18px + env(safe-area-inset-bottom));
@@ -133,7 +122,6 @@
     .cbtn:active { transform:scale(0.88); }
     .cbtn:disabled { opacity:0.35; }
     .cbtn.torch-on { background:rgba(245,158,11,0.25); border-color:var(--yellow); }
-
     .sbtn {
       flex:1; max-width:210px; padding:16px; border-radius:18px; border:none;
       font-size:1rem; font-weight:700; font-family:-apple-system,sans-serif;
@@ -219,7 +207,12 @@
     document.getElementById('welcomeScreen').classList.remove('hidden');
   }
 
-  const CAMERA_PEER_ID = `ipcam-${sessionId}`;
+  // ── Peer IDs ───────────────────────────────────────────────────────────────
+  // Camera uses "ipcam-c-{id}", viewer uses "ipcam-v-{id}"
+  // Camera CALLS the viewer → no stream needed from viewer side → works in OBS!
+  const CAMERA_PEER_ID = `ipcam-c-${sessionId}`;
+  const VIEWER_PEER_ID = `ipcam-v-${sessionId}`;
+
   const PEER_CFG = {
     host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
     config: {
@@ -238,15 +231,11 @@
   let torchOn        = false;
   let statsTimer     = null;
   let peerRetryTimer = null;
+  let callRetryTimer = null;
   let peerRetries    = 0;
   let flipping       = false;
-  let viewerCount    = 0;
-
-  // ── SIMPLIFIED: camera answers incoming calls (viewers call us) ───────────
-  // Map of call.peer → MediaConnection
-  const activeCalls  = new Map();
-  // Calls received before streaming started (buffered)
-  const pendingCalls = new Set();
+  let activeCall     = null;  // current call to viewer
+  let viewerConnected = false;
 
   const RES_LADDER = [
     { label:'1080p', w:1920, h:1080 },
@@ -254,7 +243,7 @@
     { label:'480p',  w:854,  h:480  },
   ];
 
-  // ── Screen helpers ─────────────────────────────────────────────────────────
+  // ── Screens ────────────────────────────────────────────────────────────────
   const SCREENS = ['noSession','welcomeScreen','deniedScreen'];
   function showScreen(id) {
     SCREENS.forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
@@ -273,7 +262,7 @@
     document.getElementById('connectingOverlay').classList.add('hidden');
   }
 
-  // ── STEP 1: Get camera stream (peer init is separate) ─────────────────────
+  // ── Camera stream (peer init is separate) ──────────────────────────────────
   async function getCameraStream() {
     for (const res of RES_LADDER) {
       try {
@@ -288,19 +277,15 @@
         });
         return { stream, label: res.label };
       } catch (e) {
-        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-          return { denied: true };
-        }
+        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') return { denied: true };
       }
     }
     return { failed: true };
   }
 
-  // ── STEP 2: Full startup ───────────────────────────────────────────────────
   async function startFlow() {
     const result = await getCameraStream();
-    if (result.denied)  { showScreen('deniedScreen'); return; }
-    if (result.failed || !result.stream) { showScreen('deniedScreen'); return; }
+    if (result.denied || result.failed || !result.stream) { showScreen('deniedScreen'); return; }
 
     localStream = result.stream;
     const vidEl = document.getElementById('vid');
@@ -310,10 +295,10 @@
 
     showCamView();
     startStats();
-    initPeer(); // init peer ONCE, separate from camera
+    initPeer(); // peer init separate from camera — never re-runs on flip
   }
 
-  // ── PeerJS: camera listens for incoming calls from viewers ─────────────────
+  // ── PeerJS ─────────────────────────────────────────────────────────────────
   function initPeer() {
     clearTimeout(peerRetryTimer);
     if (cameraPeer && !cameraPeer.destroyed) cameraPeer.destroy();
@@ -328,45 +313,15 @@
       hideConnecting();
       setStatus('ready');
       console.log('[Camera] Peer ready:', CAMERA_PEER_ID);
-    });
-
-    // ── KEY CHANGE: camera ANSWERS calls from viewers ──────────────────────
-    // Viewers call the camera with a tiny empty stream to initiate connection.
-    // Camera answers with localStream when streaming is active.
-    cameraPeer.on('call', (call) => {
-      console.log('[Camera] Incoming call from viewer:', call.peer);
-
-      if (streaming && localStream) {
-        // Streaming is active — answer immediately with camera stream
-        call.answer(localStream);
-        registerCall(call);
-      } else {
-        // Not streaming yet — buffer and answer when user taps Start Streaming
-        pendingCalls.add(call);
-        viewerCount++;
-        updateVc();
-      }
-
-      call.on('close', () => {
-        pendingCalls.delete(call);
-        activeCalls.delete(call.peer);
-        viewerCount = Math.max(0, viewerCount - 1);
-        updateVc();
-        updateStatus();
-      });
-      call.on('error', () => {
-        pendingCalls.delete(call);
-        activeCalls.delete(call.peer);
-        viewerCount = Math.max(0, viewerCount - 1);
-        updateVc();
-      });
+      // If streaming was already on (e.g. after reconnect), resume calling viewer
+      if (streaming) callViewer();
     });
 
     cameraPeer.on('error', (err) => {
       console.warn('[Camera] Peer error:', err.type);
       if (err.type === 'unavailable-id') {
         peerRetries++;
-        const delay = Math.min(peerRetries * 3, 12);
+        const delay = Math.min(peerRetries * 3, 15);
         showConnecting(`Session in use, retrying in ${delay}s…`);
         peerRetryTimer = setTimeout(initPeer, delay * 1000);
       } else if (['network','server-error','socket-error','socket-closed'].includes(err.type)) {
@@ -381,41 +336,87 @@
     });
   }
 
-  function registerCall(call) {
-    activeCalls.set(call.peer, call);
-    updateStatus();
-  }
+  // ── Camera CALLS viewer (viewer.html is OBS Browser Source) ──────────────
+  // Camera → viewer call: no stream needed from viewer, camera sends stream to viewer.
+  // This works in OBS because OBS's viewer doesn't need to provide any media.
+  function callViewer() {
+    clearTimeout(callRetryTimer);
+    if (!streaming || !cameraPeer || cameraPeer.destroyed || !localStream) return;
 
-  function updateStatus() {
-    setStatus(activeCalls.size > 0 ? 'live' : 'ready');
+    console.log('[Camera] Calling viewer:', VIEWER_PEER_ID);
+
+    const call = cameraPeer.call(VIEWER_PEER_ID, localStream);
+
+    if (!call) {
+      // viewer peer not found yet, retry
+      callRetryTimer = setTimeout(callViewer, 4000);
+      return;
+    }
+
+    activeCall = call;
+
+    call.on('stream', () => {
+      // Viewer answered — connection established
+      viewerConnected = true;
+      setStatus('live');
+      updateVc(true);
+      console.log('[Camera] Viewer connected, streaming live');
+    });
+
+    call.on('error', (err) => {
+      console.warn('[Camera] Call error:', err);
+      activeCall = null;
+      viewerConnected = false;
+      updateVc(false);
+      if (streaming) {
+        setStatus('ready');
+        callRetryTimer = setTimeout(callViewer, 4000);
+      }
+    });
+
+    call.on('close', () => {
+      console.log('[Camera] Viewer disconnected');
+      activeCall = null;
+      viewerConnected = false;
+      updateVc(false);
+      if (streaming) {
+        setStatus('ready');
+        // Viewer might have refreshed (OBS reload), try calling again
+        callRetryTimer = setTimeout(callViewer, 3000);
+      }
+    });
+
+    // Give viewer 15s to answer before retrying (viewer may still be loading)
+    callRetryTimer = setTimeout(() => {
+      if (!viewerConnected && streaming) {
+        console.log('[Camera] Viewer did not answer in 15s, retrying…');
+        call.close();
+        activeCall = null;
+        callViewer();
+      }
+    }, 15000);
   }
 
   // ── Stream toggle ──────────────────────────────────────────────────────────
   function toggleStream() {
     if (streaming) {
-      // Stop: close all active calls
-      activeCalls.forEach(c => c.close());
-      activeCalls.clear();
-      // Don't close pending calls — they'll timeout on viewer side
+      clearTimeout(callRetryTimer);
+      activeCall?.close();
+      activeCall = null;
+      viewerConnected = false;
       streaming = false;
       setStatus('ready');
+      updateVc(false);
       updateBtn();
     } else {
       streaming = true;
       updateBtn();
-      // Answer all buffered pending calls
-      const toAnswer = [...pendingCalls];
-      pendingCalls.clear();
-      for (const call of toAnswer) {
-        if (localStream) {
-          call.answer(localStream);
-          registerCall(call);
-        }
-      }
+      setStatus('connecting');
+      callViewer(); // camera calls viewer now
     }
   }
 
-  // ── Flip camera (no peer re-init!) ─────────────────────────────────────────
+  // ── Flip camera (NO peer re-init!) ─────────────────────────────────────────
   async function flipCam() {
     if (flipping) return;
     flipping = true;
@@ -427,7 +428,7 @@
 
     const result = await getCameraStream();
     if (!result || !result.stream) {
-      facingMode = facingMode === 'environment' ? 'user' : 'environment'; // revert
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
       flipping = false;
       document.getElementById('flipBtn').disabled = false;
       return;
@@ -439,10 +440,10 @@
     vidEl.classList.toggle('mirror', facingMode === 'user');
     document.getElementById('resl').textContent = result.label;
 
-    // Hot-swap track in all active calls — no reconnect
-    const newTrack = localStream.getVideoTracks()[0];
-    for (const call of activeCalls.values()) {
-      const pc = call.peerConnection;
+    // Replace the track in the active call without disconnecting
+    if (activeCall) {
+      const newTrack = localStream.getVideoTracks()[0];
+      const pc = activeCall.peerConnection;
       if (pc && newTrack) {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video');
         if (sender) {
@@ -487,14 +488,14 @@
     const bar = document.getElementById('cbar');
     dot.className = 'rdot'; bar.className = 'cbar';
     if      (state === 'live')       { dot.classList.add('live'); lbl.textContent = '● LIVE'; bar.classList.add('live'); }
-    else if (state === 'connecting') { lbl.textContent = 'Connecting…'; bar.classList.add('connecting'); }
+    else if (state === 'connecting') { lbl.textContent = 'Calling viewer…'; bar.classList.add('connecting'); }
     else                             { lbl.textContent = 'Ready'; }
   }
 
-  function updateVc() {
-    const el  = document.getElementById('vc');
-    el.style.display = viewerCount > 0 ? 'block' : 'none';
-    document.getElementById('vcn').textContent = viewerCount;
+  function updateVc(connected) {
+    const el = document.getElementById('vc');
+    el.style.display = connected ? 'block' : 'none';
+    document.getElementById('vcn').textContent = connected ? 1 : 0;
   }
 </script>
 </body>
