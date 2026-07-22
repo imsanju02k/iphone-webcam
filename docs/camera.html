@@ -6,7 +6,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>iPhone WebCam – Camera</title>
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- jsDelivr CDN: more reliable in OBS Browser Source CEF -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     :root {
       --bg:#030712; --surface:#0f172a; --accent:#6366f1; --accent2:#8b5cf6;
@@ -369,7 +370,8 @@
       viewerConnected = false;
       updateVc(false);
       if (streaming) {
-        setStatus('ready');
+        // Keep showing 'Calling viewer…' while retrying — don't reset to Ready
+        setStatus('connecting');
         callRetryTimer = setTimeout(callViewer, 4000);
       }
     });
@@ -380,8 +382,7 @@
       viewerConnected = false;
       updateVc(false);
       if (streaming) {
-        setStatus('ready');
-        // Viewer might have refreshed (OBS reload), try calling again
+        setStatus('connecting');
         callRetryTimer = setTimeout(callViewer, 3000);
       }
     });
