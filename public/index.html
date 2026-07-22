@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iPhone WebCam – Control Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #030712;
+      --surface: #0f172a;
+      --surface2: #1e293b;
+      --surface3: #334155;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: rgba(99,102,241,0.25);
+      --glow: rgba(99,102,241,0.15);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse at 20% 20%, rgba(99,102,241,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 60%);
+    }
+
+    /* ─── Header ─── */
+    header {
+      padding: 24px 40px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(3,7,18,0.8);
+    }
+    .logo {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+      box-shadow: 0 0 20px var(--glow);
+    }
+    header h1 { font-size: 1.3rem; font-weight: 700; }
+    header span { color: var(--muted); font-size: 0.85rem; font-weight: 400; }
+
+    .status-pill {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    .dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.error { background: var(--red); }
+
+    /* ─── Layout ─── */
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 28px;
+    }
+
+    /* ─── Cards ─── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(99,102,241,0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .card-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 18px;
+    }
+
+    /* ─── QR Section ─── */
+    .qr-wrap {
+      display: flex; flex-direction: column; align-items: center; gap: 20px;
+    }
+    .qr-frame {
+      width: 220px; height: 220px;
+      border-radius: 18px;
+      border: 3px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      background: #f8fafc;
+      box-shadow: 0 0 40px var(--glow);
+      overflow: hidden;
+      position: relative;
+    }
+    .qr-frame img { width: 100%; height: 100%; object-fit: contain; }
+    .qr-corners::before, .qr-corners::after {
+      content: '';
+      position: absolute;
+      width: 24px; height: 24px;
+      border-color: var(--accent);
+      border-style: solid;
+    }
+    .qr-loading {
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--surface3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .qr-instruction {
+      text-align: center;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .qr-instruction strong { color: var(--text); }
+
+    /* ─── URL Copy ─── */
+    .url-box {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: border-color 0.2s;
+    }
+    .url-box:hover { border-color: var(--accent); }
+    .url-text {
+      flex: 1;
+      font-size: 0.8rem;
+      color: var(--accent);
+      word-break: break-all;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .copy-btn {
+      flex-shrink: 0;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+    .copy-btn:hover { background: var(--accent2); transform: scale(1.04); }
+    .copy-btn.copied { background: var(--green); }
+
+    /* ─── Right Column ─── */
+    .right-col { display: flex; flex-direction: column; gap: 22px; }
+
+    /* ─── Steps ─── */
+    .steps { display: flex; flex-direction: column; gap: 14px; }
+    .step {
+      display: flex; gap: 16px; align-items: flex-start;
+      padding: 16px;
+      background: var(--surface2);
+      border-radius: 14px;
+      border: 1px solid transparent;
+      transition: border-color 0.3s, background 0.3s;
+      cursor: default;
+    }
+    .step.active {
+      border-color: var(--accent);
+      background: rgba(99,102,241,0.08);
+    }
+    .step.done {
+      border-color: rgba(16,185,129,0.3);
+      background: rgba(16,185,129,0.05);
+    }
+    .step-num {
+      width: 36px; height: 36px; flex-shrink: 0;
+      background: var(--surface3);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.85rem;
+      color: var(--muted);
+      transition: all 0.3s;
+    }
+    .step.active .step-num { background: var(--accent); color: white; }
+    .step.done .step-num { background: var(--green); color: white; }
+    .step-content h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 4px; }
+    .step-content p { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+    /* ─── OBS Info ─── */
+    .obs-card {
+      background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08));
+      border: 1px solid rgba(99,102,241,0.35);
+    }
+    .obs-url-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 14px;
+    }
+    .obs-badge {
+      font-size: 0.7rem; font-weight: 700;
+      background: var(--accent);
+      color: white;
+      padding: 3px 8px; border-radius: 6px;
+      white-space: nowrap;
+    }
+    .obs-url {
+      font-size: 0.82rem; color: var(--accent);
+      font-family: monospace; word-break: break-all;
+    }
+
+    /* ─── Live Preview ─── */
+    .preview-card { grid-column: 1 / -1; }
+    .preview-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: var(--bg);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #previewVideo {
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .preview-overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px;
+      background: var(--surface);
+    }
+    .preview-overlay p { color: var(--muted); font-size: 0.9rem; }
+    .preview-overlay .icon { font-size: 3rem; }
+
+    .preview-stats {
+      position: absolute; top: 12px; left: 12px;
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      color: var(--text);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .stat-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* ─── Settings ─── */
+    .settings-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 12px; margin-top: 16px;
+    }
+    .setting-item label {
+      display: block; font-size: 0.75rem; color: var(--muted);
+      margin-bottom: 6px; font-weight: 500;
+    }
+    .setting-item select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 0.85rem;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      appearance: none;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .setting-item select:focus { border-color: var(--accent); }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .preview-card { grid-column: auto; }
+    }
+    @media (max-width: 600px) {
+      header { padding: 16px 20px; }
+      main { padding: 20px 16px; }
+      .settings-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📷</div>
+  <div>
+    <h1>iPhone WebCam 4K</h1>
+    <span>Wireless camera for OBS Studio — WebRTC over WiFi</span>
+  </div>
+  <div class="status-pill">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Initializing…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Left: QR + URL ── -->
+  <div>
+    <div class="card">
+      <div class="card-title">📱 Connect Your iPhone</div>
+      <div class="qr-wrap">
+        <div class="qr-frame" id="qrFrame">
+          <div class="qr-loading">
+            <div class="spinner"></div>
+            <span>Generating QR…</span>
+          </div>
+        </div>
+        <div class="qr-instruction">
+          Open <strong>Safari</strong> on your iPhone and<br />
+          scan the QR code or use the link below
+        </div>
+        <div id="cameraUrlBox" class="url-box" style="display:none">
+          <span class="url-text" id="cameraUrlText"></span>
+          <button class="copy-btn" id="copyBtn" onclick="copyUrl('camera')">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card" style="margin-top:22px">
+      <div class="card-title">⚙️ Camera Settings</div>
+      <div class="settings-grid">
+        <div class="setting-item">
+          <label>Resolution</label>
+          <select id="resSelect">
+            <option value="3840x2160" selected>4K UHD (3840×2160)</option>
+            <option value="2704x1520">2.7K (2704×1520)</option>
+            <option value="1920x1080">1080p (1920×1080)</option>
+            <option value="1280x720">720p (1280×720)</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label>Frame Rate</label>
+          <select id="fpsSelect">
+            <option value="60">60 fps</option>
+            <option value="30" selected>30 fps</option>
+            <option value="24">24 fps</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label>Camera</label>
+          <select id="camSelect">
+            <option value="back">Rear Camera</option>
+            <option value="front">Front Camera</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label>Quality</label>
+          <select id="qualSelect">
+            <option value="high" selected>High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low (save bandwidth)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right Column ── -->
+  <div class="right-col">
+
+    <!-- Steps -->
+    <div class="card">
+      <div class="card-title">🚀 Quick Start Guide</div>
+      <div class="steps">
+        <div class="step active" id="step1">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h3>Scan QR → Open in Safari</h3>
+            <p>Must use <strong>Safari</strong>. You'll see a <strong>“Not Secure” warning</strong> — tap <strong>Advanced → Visit Website</strong> (it's your own computer, safe to proceed).</p>
+          </div>
+        </div>
+        <div class="step" id="step2">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h3>Allow Camera → Start Streaming</h3>
+            <p>Tap <strong>Allow</strong> when Safari asks. Then tap <strong>Start Camera</strong> → <strong>Start Streaming</strong>. App targets 4K UHD automatically.</p>
+          </div>
+        </div>
+        <div class="step" id="step3">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h3>Add Viewer URL to OBS</h3>
+            <p>OBS → Sources → + → Browser Source. Paste the Viewer URL. Set <strong>3840×2160</strong> for 4K.</p>
+          </div>
+        </div>
+        <div class="step" id="step4">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h3>🎉 Streaming in 4K!</h3>
+            <p>Your iPhone camera appears in OBS at up to 4K resolution. No extra apps needed!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OBS URL -->
+    <div class="card obs-card">
+      <div class="card-title">🎬 OBS Browser Source</div>
+      <p style="font-size:0.85rem; color:var(--muted); line-height:1.6">
+        Add this URL in OBS as a <strong style="color:var(--text)">Browser Source</strong>.<br/>
+        For 4K set width <strong style="color:var(--text)">3840</strong> × height <strong style="color:var(--text)">2160</strong>.
+      </p>
+      <div class="obs-url-row">
+        <span class="obs-badge">OBS URL</span>
+        <span class="obs-url" id="viewerUrlText">Loading…</span>
+        <button class="copy-btn" id="copyViewerBtn" onclick="copyUrl('viewer')">Copy</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── OBS Setup Card ── -->
+  <div class="card preview-card" id="obsCard">
+    <div class="card-title">🎬 OBS Setup — Step by Step</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px">
+      <div style="background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:16px">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:10px">📺 OBS Browser Source URL</div>
+        <div style="font-size:0.82rem; color:var(--accent); font-family:monospace; word-break:break-all; margin-bottom:10px" id="obsUrlDisplay">Loading…</div>
+        <button class="copy-btn" onclick="copyObs()">Copy OBS URL</button>
+      </div>
+      <div style="background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:16px">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--green); margin-bottom:10px">📐 OBS Resolution</div>
+        <div style="font-size:0.8rem; margin-bottom:8px; padding:6px 8px; background:rgba(16,185,129,0.08); border-radius:8px; border:1px solid rgba(16,185,129,0.2)">
+          <div style="font-weight:600; margin-bottom:2px">▭ 16:9 Landscape</div>
+          <div style="color:var(--muted)">Width: <strong>1920</strong> × Height: <strong>1080</strong></div>
+        </div>
+        <div style="font-size:0.8rem; padding:6px 8px; background:rgba(99,102,241,0.08); border-radius:8px; border:1px solid rgba(99,102,241,0.2)">
+          <div style="font-weight:600; margin-bottom:2px">▯ 9:16 Portrait</div>
+          <div style="color:var(--muted)">Width: <strong>1080</strong> × Height: <strong>1920</strong></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px">
+      <div style="font-size:0.78rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px">Follow these steps in OBS Studio:</div>
+      <div id="obsSteps"></div>
+    </div>
+  </div>
+
+  <!-- ── Live Preview (iframe of viewer.html) ── -->
+  <div class="card preview-card">
+    <div class="card-title">👁️ Live Preview <span style="font-size:0.7rem; color:var(--muted); font-weight:400">(same stream OBS receives)</span></div>
+    <div class="preview-wrap">
+      <iframe id="previewFrame" src="/viewer.html"
+        style="width:100%;height:100%;border:none;background:#000;border-radius:14px"
+        allow="camera;microphone;autoplay;fullscreen">
+      </iframe>
+    </div>
+  </div>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const ROOM_ID = 'main';
+  const socket  = io(); // HTTP socket (port 3000)
+
+  let serverInfo = null;
+  let currentStep = 1;
+
+  // ── Load server info + build OBS steps ─────────────────────────────────
+  fetch('/api/info').then(r => r.json()).then(info => {
+    serverInfo = info;
+
+    // QR code (HTTPS link for iPhone)
+    document.getElementById('qrFrame').innerHTML = `<img src="${info.qrCode}" alt="QR Code" />`;
+
+    // Camera + viewer URLs
+    document.getElementById('cameraUrlBox').style.display = 'flex';
+    document.getElementById('cameraUrlText').textContent = info.cameraUrl;
+    document.getElementById('viewerUrlText').textContent = info.viewerUrl;
+    document.getElementById('obsUrlDisplay').textContent = info.viewerUrl;
+
+    // OBS step-by-step with real IP filled in
+    buildObsSteps(info);
+
+    setStatus('waiting', 'Waiting for iPhone…');
+  });
+
+  function buildObsSteps(info) {
+    const steps = [
+      { icon: '1️⃣', title: 'Open OBS Studio on this computer', desc: 'Make sure OBS is open and your scene is selected.' },
+      { icon: '2️⃣', title: 'Add a Browser Source', desc: 'In the <strong>Sources</strong> panel → click <strong>+</strong> → select <strong>Browser</strong> → name it "iPhone Camera".' },
+      { icon: '3️⃣', title: 'Paste this URL into OBS', desc: `URL: <code style="background:rgba(99,102,241,0.15);color:#818cf8;padding:2px 6px;border-radius:4px;font-size:0.8rem">${info.viewerUrl}</code>` },
+      { icon: '4️⃣', title: 'Set resolution to match your ratio', desc: '▭ <strong>16:9 Landscape</strong>: Width <strong>1920</strong> × Height <strong>1080</strong> &nbsp;|&nbsp; ▯ <strong>9:16 Portrait</strong>: Width <strong>1080</strong> × Height <strong>1920</strong>. FPS: <strong>30</strong>.' },
+      { icon: '5️⃣', title: 'Tick "Shutdown source when not visible"', desc: 'Optional but saves resources when the source is hidden.' },
+      { icon: '6️⃣', title: 'Click OK → Start iPhone streaming', desc: 'Click OK in OBS. Then on your iPhone tap <strong>Start Camera → Start Streaming</strong>. The stream appears in OBS instantly.' },
+    ];
+    const html = steps.map(s => `
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:12px">
+        <span style="font-size:1.2rem;flex-shrink:0">${s.icon}</span>
+        <div>
+          <div style="font-size:0.85rem;font-weight:600;margin-bottom:2px">${s.title}</div>
+          <div style="font-size:0.78rem;color:var(--muted);line-height:1.55">${s.desc}</div>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('obsSteps').innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${html}</div>`;
+  }
+
+  // ── Copy helpers ───────────────────────────────────────────────────────
+  function copyUrl(type) {
+    if (!serverInfo) return;
+    const url   = type === 'camera' ? serverInfo.cameraUrl : serverInfo.viewerUrl;
+    const btnId = type === 'camera' ? 'copyBtn' : 'copyViewerBtn';
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = document.getElementById(btnId);
+      btn.textContent = '✓ Copied'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
+
+  function copyObs() {
+    if (!serverInfo) return;
+    navigator.clipboard.writeText(serverInfo.viewerUrl).then(() => {
+      const el = document.querySelector('#obsCard .copy-btn');
+      el.textContent = '✓ Copied!'; el.classList.add('copied');
+      setTimeout(() => { el.textContent = 'Copy OBS URL'; el.classList.remove('copied'); }, 2000);
+    });
+  }
+
+  // ── Status ─────────────────────────────────────────────────────────────
+  function setStatus(state, text) {
+    const dot = document.getElementById('statusDot');
+    const lbl = document.getElementById('statusText');
+    dot.className = 'dot';
+    if (state === 'active') dot.classList.add('active');
+    if (state === 'error')  dot.classList.add('error');
+    lbl.textContent = text;
+  }
+
+  function setStep(n) {
+    for (let i = 1; i <= 4; i++) {
+      document.getElementById(`step${i}`).className =
+        'step' + (i < n ? ' done' : i === n ? ' active' : '');
+    }
+    currentStep = n;
+  }
+
+  // ── Socket: track camera status for the header pill only ──────────────
+  // (The actual preview comes from viewer.html inside the iframe)
+  socket.emit('viewer:join', { roomId: ROOM_ID });
+
+  socket.on('viewer:camera_ready', () => {
+    setStatus('active', 'iPhone connected');
+    setStep(2);
+  });
+
+  // Forward offer/answer/ice for this control panel viewer
+  let ctrPeer = null;
+  let ctrCameraId = null;
+
+  socket.on('webrtc:offer', async ({ offer, fromCameraId }) => {
+    ctrCameraId = fromCameraId;
+    ctrPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    ctrPeer.onicecandidate = ({ candidate }) => {
+      if (candidate) socket.emit('webrtc:ice', { roomId: ROOM_ID, toId: ctrCameraId, candidate });
+    };
+    ctrPeer.onconnectionstatechange = () => {
+      if (ctrPeer.connectionState === 'connected') { setStatus('active', '● iPhone Live'); setStep(4); }
+    };
+    await ctrPeer.setRemoteDescription(offer);
+    const answer = await ctrPeer.createAnswer();
+    await ctrPeer.setLocalDescription(answer);
+    socket.emit('webrtc:answer', { roomId: ROOM_ID, answer });
+    setStep(3);
+  });
+
+  socket.on('webrtc:ice', ({ candidate }) => ctrPeer?.addIceCandidate(candidate).catch(() => {}));
+
+  socket.on('peer:disconnected', () => {
+    setStatus('error', 'iPhone disconnected'); setStep(1);
+    ctrPeer?.close(); ctrPeer = null; ctrCameraId = null;
+    socket.emit('viewer:join', { roomId: ROOM_ID });
+  });
+</script>
+
+</body>
+</html>

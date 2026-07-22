@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iPhone WebCam – Control Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg: #030712; --surface: #0f172a; --surface2: #1e293b; --surface3: #334155;
+      --accent: #6366f1; --accent2: #8b5cf6; --green: #10b981; --red: #ef4444;
+      --yellow: #f59e0b; --text: #f1f5f9; --muted: #94a3b8;
+      --border: rgba(99,102,241,0.22); --glow: rgba(99,102,241,0.12);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text);
+      min-height: 100vh;
+      background-image: radial-gradient(ellipse at 20% 20%, rgba(99,102,241,0.07) 0%, transparent 60%),
+                        radial-gradient(ellipse at 80% 80%, rgba(139,92,246,0.05) 0%, transparent 60%);
+    }
+    header {
+      padding: 20px 36px; display:flex; align-items:center; gap:14px;
+      border-bottom: 1px solid var(--border); background: rgba(3,7,18,0.85);
+      backdrop-filter: blur(12px); position:sticky; top:0; z-index:100;
+    }
+    .logo {
+      width:42px; height:42px; border-radius:12px; font-size:22px;
+      background: linear-gradient(135deg,var(--accent),var(--accent2));
+      display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 0 20px var(--glow); flex-shrink:0;
+    }
+    header h1 { font-size:1.25rem; font-weight:700; }
+    header span { color:var(--muted); font-size:0.82rem; }
+    .pill {
+      margin-left:auto; display:flex; align-items:center; gap:7px;
+      padding:6px 14px; background:var(--surface); border:1px solid var(--border);
+      border-radius:999px; font-size:0.76rem; font-weight:500;
+    }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); transition:background 0.3s; }
+    .dot.live { background:var(--green); box-shadow:0 0 8px var(--green); }
+
+    main {
+      max-width:1160px; margin:0 auto; padding:32px 20px;
+      display:grid; grid-template-columns:340px 1fr; gap:24px;
+    }
+    .card {
+      background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:24px;
+      position:relative; overflow:hidden;
+    }
+    .card::before { content:''; position:absolute; inset:0; pointer-events:none;
+      background:linear-gradient(135deg,rgba(99,102,241,0.035) 0%,transparent 60%); }
+    .card-title {
+      font-size:0.68rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:0.12em; color:var(--accent); margin-bottom:16px;
+    }
+    .right-col { display:flex; flex-direction:column; gap:20px; }
+
+    /* QR */
+    .qr-wrap { display:flex; flex-direction:column; align-items:center; gap:16px; }
+    .qr-frame {
+      width:200px; height:200px; background:#f0eeff; border-radius:16px;
+      border:3px solid var(--border); display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 0 36px var(--glow); overflow:hidden;
+    }
+    .qr-frame img { width:100% !important; height:100% !important; }
+    .qr-frame canvas { width:100% !important; height:100% !important; }
+    .spin { width:32px; height:32px; border:3px solid var(--surface3); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .qr-note { text-align:center; font-size:0.84rem; color:var(--muted); line-height:1.6; }
+    .qr-note strong { color:var(--text); }
+    .session-badge {
+      display:flex; align-items:center; gap:8px; padding:8px 14px;
+      background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+      font-size:0.75rem; width:100%;
+    }
+    .session-id { flex:1; font-family:monospace; color:var(--accent); font-size:0.82rem; letter-spacing:0.05em; }
+    .refresh-btn {
+      background:none; border:1px solid var(--border); border-radius:8px;
+      padding:4px 10px; color:var(--muted); font-size:0.72rem; cursor:pointer;
+      font-family:'Inter',sans-serif; transition:all 0.2s;
+    }
+    .refresh-btn:hover { border-color:var(--accent); color:var(--text); }
+
+    /* URL rows */
+    .url-row {
+      display:flex; align-items:center; gap:8px; padding:10px 12px;
+      background:var(--surface2); border:1px solid var(--border); border-radius:12px;
+      transition:border-color 0.2s; width:100%;
+    }
+    .url-row:hover { border-color:var(--accent); }
+    .url-label { font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); white-space:nowrap; }
+    .url-val { flex:1; font-size:0.76rem; color:var(--accent); font-family:monospace; word-break:break-all; }
+    .copy-btn {
+      flex-shrink:0; background:var(--accent); color:white; border:none;
+      border-radius:8px; padding:5px 11px; font-size:0.72rem; font-weight:600;
+      cursor:pointer; font-family:'Inter',sans-serif; transition:all 0.18s;
+    }
+    .copy-btn:hover { background:var(--accent2); transform:scale(1.04); }
+    .copy-btn.ok { background:var(--green); }
+
+    /* Steps */
+    .steps { display:flex; flex-direction:column; gap:10px; }
+    .step {
+      display:flex; gap:14px; align-items:flex-start; padding:14px;
+      background:var(--surface2); border-radius:13px; border:1px solid transparent; transition:all 0.3s;
+    }
+    .step.active { border-color:var(--accent); background:rgba(99,102,241,0.07); }
+    .step.done   { border-color:rgba(16,185,129,0.3); background:rgba(16,185,129,0.04); }
+    .sn {
+      width:34px; height:34px; flex-shrink:0; background:var(--surface3); border-radius:9px;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:700; font-size:0.82rem; color:var(--muted); transition:all 0.3s;
+    }
+    .step.active .sn { background:var(--accent); color:white; }
+    .step.done   .sn { background:var(--green);  color:white; }
+    .sc h3 { font-size:0.88rem; font-weight:600; margin-bottom:3px; }
+    .sc p  { font-size:0.77rem; color:var(--muted); line-height:1.55; }
+    .sc p strong { color:var(--text); }
+
+    /* OBS card */
+    .obs-card { background:linear-gradient(135deg,rgba(99,102,241,0.09),rgba(139,92,246,0.06)); border-color:rgba(99,102,241,0.32); }
+    .res-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+    .res-box {
+      padding:10px 12px; border-radius:11px; font-size:0.8rem;
+      border:1px solid rgba(255,255,255,0.06);
+    }
+    .res-box .rb-label { font-size:0.68rem; font-weight:700; margin-bottom:5px; }
+    .res-box .rb-val { color:var(--muted); font-size:0.78rem; }
+    .res-box .rb-val strong { color:var(--text); }
+    .res-box.green { background:rgba(16,185,129,0.07); border-color:rgba(16,185,129,0.2); }
+    .res-box.green .rb-label { color:var(--green); }
+    .res-box.purple { background:rgba(99,102,241,0.07); border-color:rgba(99,102,241,0.2); }
+    .res-box.purple .rb-label { color:var(--accent); }
+
+    /* OBS Steps */
+    .obs-steps { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+    .obs-step {
+      display:flex; gap:12px; align-items:flex-start;
+      padding:10px 13px; background:var(--surface2); border:1px solid var(--border); border-radius:11px;
+    }
+    .obs-step .oi { font-size:1.1rem; flex-shrink:0; }
+    .obs-step .ot { font-size:0.84rem; font-weight:600; margin-bottom:2px; }
+    .obs-step .od { font-size:0.76rem; color:var(--muted); line-height:1.5; }
+    .obs-step .od code { background:rgba(99,102,241,0.15); color:#a5b4fc; padding:2px 5px; border-radius:4px; font-size:0.78rem; }
+    .obs-step .od strong { color:var(--text); }
+
+    /* Preview */
+    .preview-card { grid-column:1/-1; }
+    .preview-wrap { position:relative; width:100%; aspect-ratio:16/9; border-radius:13px; overflow:hidden; border:1px solid var(--border); background:#000; }
+    .preview-wrap iframe { width:100%; height:100%; border:none; background:#000; }
+    @media(max-width:900px){ main{grid-template-columns:1fr;} .preview-card{grid-column:auto;} }
+    @media(max-width:600px){ header{padding:14px 18px;} main{padding:20px 14px;} }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">📷</div>
+  <div>
+    <h1>iPhone WebCam</h1>
+    <span>Wireless webcam for OBS · Powered by WebRTC</span>
+  </div>
+  <div class="pill">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Initializing…</span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: QR + Session -->
+  <div>
+    <div class="card">
+      <div class="card-title">📱 Connect iPhone</div>
+      <div class="qr-wrap">
+        <div class="qr-frame" id="qrFrame"><div class="spin"></div></div>
+        <div class="qr-note">Open <strong>Safari</strong> on your iPhone<br/>and scan this QR code</div>
+        <div class="session-badge">
+          <span style="color:var(--muted);font-size:0.7rem">SESSION</span>
+          <span class="session-id" id="sessionIdLabel">—</span>
+          <button class="refresh-btn" onclick="newSession()">↺ New</button>
+        </div>
+        <div class="url-row">
+          <span class="url-label">📱 iPhone</span>
+          <span class="url-val" id="cameraUrlVal">—</span>
+          <button class="copy-btn" id="cpCam" onclick="copyUrl('cam')">Copy</button>
+        </div>
+        <div class="url-row">
+          <span class="url-label">🎬 OBS</span>
+          <span class="url-val" id="viewerUrlVal">—</span>
+          <button class="copy-btn" id="cpObs" onclick="copyUrl('obs')">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Steps + OBS -->
+  <div class="right-col">
+    <div class="card">
+      <div class="card-title">🚀 Quick Start</div>
+      <div class="steps">
+        <div class="step active" id="s1">
+          <div class="sn">1</div>
+          <div class="sc">
+            <h3>Scan QR → Open in Safari</h3>
+            <p>Use <strong>Safari</strong> on iPhone (not Chrome). GitHub Pages = HTTPS, so camera access works instantly — no warnings!</p>
+          </div>
+        </div>
+        <div class="step" id="s2">
+          <div class="sn">2</div>
+          <div class="sc">
+            <h3>Allow Camera → Tap Start Streaming</h3>
+            <p>Tap <strong>Allow</strong> when Safari asks. Choose <strong>16:9</strong> or <strong>9:16</strong> ratio, then tap Start Streaming.</p>
+          </div>
+        </div>
+        <div class="step" id="s3">
+          <div class="sn">3</div>
+          <div class="sc">
+            <h3>Add OBS URL as Browser Source</h3>
+            <p>In OBS: Sources → <strong>+</strong> → Browser → paste the OBS URL → set 1920×1080.</p>
+          </div>
+        </div>
+        <div class="step" id="s4">
+          <div class="sn">4</div>
+          <div class="sc">
+            <h3>🎉 Live in OBS!</h3>
+            <p>iPhone stream appears in OBS instantly. Works on <strong>any network</strong>, not just WiFi!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card obs-card">
+      <div class="card-title">🎬 OBS Browser Source Setup</div>
+      <div class="res-grid">
+        <div class="res-box green">
+          <div class="rb-label">▭ 16:9 Landscape</div>
+          <div class="rb-val">Width: <strong>1920</strong> × Height: <strong>1080</strong></div>
+        </div>
+        <div class="res-box purple">
+          <div class="rb-label">▯ 9:16 Portrait</div>
+          <div class="rb-val">Width: <strong>1080</strong> × Height: <strong>1920</strong></div>
+        </div>
+      </div>
+      <div class="obs-steps" id="obsSteps"></div>
+    </div>
+  </div>
+
+  <!-- Preview -->
+  <div class="card preview-card">
+    <div class="card-title">👁️ Live Preview <span style="font-size:0.68rem;color:var(--muted);font-weight:400">(same stream OBS receives)</span></div>
+    <div class="preview-wrap">
+      <iframe id="previewIframe" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
+    </div>
+  </div>
+</main>
+
+<script>
+  // ── Session ──────────────────────────────────────────────────────────────
+  function genId() {
+    return Math.random().toString(36).substr(2,5) + Math.random().toString(36).substr(2,5);
+  }
+  function getSession() {
+    let s = localStorage.getItem('ipcam-session');
+    if (!s || s.length < 8) { s = genId(); localStorage.setItem('ipcam-session', s); }
+    return s;
+  }
+  function newSession() {
+    if (!confirm('Generate a new session? Current iPhone connection will break.')) return;
+    const s = genId();
+    localStorage.setItem('ipcam-session', s);
+    location.reload();
+  }
+
+  const sessionId = getSession();
+
+  // ── URLs ─────────────────────────────────────────────────────────────────
+  const base       = location.href.replace(/\/[^/]*$/, '');
+  const cameraUrl  = `${base}/camera.html?s=${sessionId}`;
+  const viewerUrl  = `${base}/viewer.html?s=${sessionId}`;
+
+  document.getElementById('sessionIdLabel').textContent = sessionId;
+  document.getElementById('cameraUrlVal').textContent   = cameraUrl;
+  document.getElementById('viewerUrlVal').textContent   = viewerUrl;
+
+  // ── Preview iframe ────────────────────────────────────────────────────────
+  document.getElementById('previewIframe').src = viewerUrl;
+
+  // ── QR Code ──────────────────────────────────────────────────────────────
+  document.getElementById('qrFrame').innerHTML = '';
+  new QRCode(document.getElementById('qrFrame'), {
+    text: cameraUrl, width: 200, height: 200,
+    colorDark: '#1e1b4b', colorLight: '#f0eeff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+
+  // ── OBS Steps ────────────────────────────────────────────────────────────
+  const steps = [
+    { i:'1️⃣', t:'Open OBS Studio', d:'Make sure OBS is open and your scene is selected.' },
+    { i:'2️⃣', t:'Add Browser Source', d:'Sources → <strong>+</strong> → <strong>Browser</strong> → name it "iPhone Camera".' },
+    { i:'3️⃣', t:'Paste the OBS URL', d:`URL: <code>${viewerUrl}</code>` },
+    { i:'4️⃣', t:'Set resolution', d:'▭ 16:9 → Width <strong>1920</strong> × <strong>1080</strong> &nbsp;|&nbsp; ▯ 9:16 → Width <strong>1080</strong> × <strong>1920</strong>. FPS: <strong>30</strong>.' },
+    { i:'5️⃣', t:'Click OK → Stream on iPhone', d:'Click OK in OBS. On iPhone tap <strong>Start Streaming</strong>. Stream appears instantly.' },
+  ];
+  document.getElementById('obsSteps').innerHTML = steps.map(s =>
+    `<div class="obs-step"><span class="oi">${s.i}</span><div><div class="ot">${s.t}</div><div class="od">${s.d}</div></div></div>`
+  ).join('');
+
+  // ── Copy ─────────────────────────────────────────────────────────────────
+  function copyUrl(which) {
+    const url = which === 'cam' ? cameraUrl : viewerUrl;
+    const btn = document.getElementById(which === 'cam' ? 'cpCam' : 'cpObs');
+    navigator.clipboard.writeText(url).then(() => {
+      btn.textContent = '✓'; btn.classList.add('ok');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1800);
+    });
+  }
+
+  // ── Status pill (poll iframe title / use BroadcastChannel) ───────────────
+  // Use BroadcastChannel so viewer.html can notify us when camera connects
+  const bc = new BroadcastChannel('ipcam-status');
+  bc.onmessage = (e) => {
+    const dot  = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    if (e.data === 'live') {
+      dot.className = 'dot live'; text.textContent = 'iPhone Live ●';
+      document.getElementById('s1').className = 'step done';
+      document.getElementById('s2').className = 'step done';
+      document.getElementById('s3').className = 'step active';
+    } else if (e.data === 'waiting') {
+      dot.className = 'dot'; text.textContent = 'Waiting for iPhone…';
+      document.getElementById('s1').className = 'step active';
+      document.getElementById('s2').className = 'step';
+      document.getElementById('s3').className = 'step';
+    }
+  };
+  document.getElementById('statusText').textContent = 'Waiting for iPhone…';
+</script>
+</body>
+</html>
