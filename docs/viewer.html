@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>iPhone WebCam – Viewer</title>
-  <!-- Using jsDelivr CDN for more reliable OBS Browser Source compatibility -->
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -19,7 +18,8 @@
     #overlay {
       position:fixed; inset:0; background:#000;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
-      gap:14px; transition:opacity 0.5s;
+      gap:14px; transition:opacity 0.4s ease;
+      z-index: 10;
     }
     #overlay.hidden { opacity:0; pointer-events:none; }
 
@@ -32,28 +32,29 @@
 
     #overlay h2 {
       font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-      font-size:1rem; font-weight:500; color:#475569;
+      font-size:1.05rem; font-weight:600; color:#94a3b8;
     }
     #overlay p {
       font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-      font-size:0.78rem; color:#334155; text-align:center;
-      line-height:1.6; max-width:290px;
+      font-size:0.82rem; color:#64748b; text-align:center;
+      line-height:1.6; max-width:300px;
     }
-    #overlay p strong { color:#64748b; }
+    #overlay p strong { color:#cbd5e1; }
 
-    /* Debug panel — visible in OBS to diagnose connection issues */
+    /* Debug panel — visible before video streams to diagnose any OBS connection issues */
     #debug {
       position:fixed; bottom:0; left:0; right:0;
-      background:rgba(0,0,0,0.85);
-      padding:8px 14px; font-family:monospace; font-size:11px;
-      display:flex; flex-direction:column; gap:2px;
+      background:rgba(3,7,18,0.88); backdrop-filter:blur(6px);
+      padding:8px 14px; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+      font-size:11px; display:flex; flex-direction:column; gap:3px;
+      border-top:1px solid rgba(255,255,255,0.08); z-index:20;
     }
     #debug.hidden { display:none; }
-    .dl { color:#334155; }
-    .dl span { color:#64748b; }
-    .dl span.ok  { color:#10b981; }
-    .dl span.err { color:#ef4444; }
-    .dl span.warn { color:#f59e0b; }
+    .dl { color:#64748b; display:flex; gap:6px; }
+    .dl span { color:#94a3b8; }
+    .dl span.ok   { color:#10b981; font-weight:600; }
+    .dl span.err  { color:#ef4444; font-weight:600; }
+    .dl span.warn { color:#f59e0b; font-weight:600; }
   </style>
 </head>
 <body>
@@ -61,43 +62,47 @@
 
 <div id="overlay">
   <div class="spin"></div>
-  <h2 id="overlayTitle">Connecting…</h2>
-  <p id="overlayMsg">Waiting for camera.<br/>Tap <strong>Start Streaming</strong> on iPhone.</p>
+  <h2 id="overlayTitle">Connecting to PeerJS…</h2>
+  <p id="overlayMsg">Waiting for camera.<br/>Open <strong>camera.html</strong> on iPhone and tap <strong>Start Streaming</strong>.</p>
 </div>
 
-<!-- Debug panel: helps diagnose OBS connection issues -->
+<!-- Diagnostics panel: auto-hides once stream is playing -->
 <div id="debug">
-  <div class="dl">PeerJS: <span id="dPeer">loading…</span></div>
+  <div class="dl">PeerJS: <span id="dPeer">initializing…</span></div>
   <div class="dl">Session: <span id="dSession">-</span></div>
   <div class="dl">Viewer ID: <span id="dId">-</span></div>
-  <div class="dl">Call: <span id="dCall">waiting</span></div>
+  <div class="dl">Camera Link: <span id="dCall">waiting</span></div>
   <div class="dl">Stream: <span id="dStream">none</span></div>
 </div>
 
 <script>
   const params    = new URLSearchParams(location.search);
   const sessionId = params.get('s');
+  const isPreview = params.get('preview') === '1';
 
   // ── Debug helpers ──────────────────────────────────────────────────────────
   function dbSet(id, text, state) {
     const el = document.getElementById(id);
+    if (!el) return;
     el.textContent = text;
     el.className = state || '';
   }
 
-  if (!sessionId) {
-    document.getElementById('overlayTitle').textContent = 'Missing ?s= param';
-    document.getElementById('overlayMsg').innerHTML =
-      'Copy the <strong>OBS URL</strong> from the control panel.';
-    dbSet('dSession', 'MISSING', 'err');
-  } else {
-    dbSet('dSession', sessionId);
-    startViewer();
+  function setOverlay(title, msg) {
+    document.getElementById('overlayTitle').textContent = title;
+    document.getElementById('overlayMsg').innerHTML = msg;
+    document.getElementById('overlay').classList.remove('hidden');
   }
 
+
   // ── Peer IDs ───────────────────────────────────────────────────────────────
-  // Camera: ipcam-c-{session}  |  Viewer: ipcam-v-{session}
-  const VIEWER_PEER_ID = `ipcam-v-${sessionId}`;
+  // Camera has fixed ID: ipcam-c-{session}
+  // Each viewer gets a unique random suffix to completely prevent ID collisions
+  // between OBS, control panel preview iframe, or scene refreshes.
+  const uniqueTag      = isPreview ? `prev-${Math.random().toString(36).substring(2, 7)}` : `obs-${Math.random().toString(36).substring(2, 7)}`;
+  const VIEWER_PEER_ID = `ipcam-v-${sessionId}-${uniqueTag}`;
+  const CAMERA_PEER_ID = `ipcam-c-${sessionId}`;
+
   const PEER_CFG = {
     host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
     config: {
@@ -105,7 +110,9 @@
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
       ]
     }
   };
@@ -113,123 +120,111 @@
   let bc = null;
   try { bc = new BroadcastChannel('ipcam-status'); } catch(_) {}
 
-  let viewerPeer  = null;
-  let activeCall  = null;
-  let retryTimer  = null;
-  let retryCount  = 0;
-  let audioCtx    = null;  // kept alive for the stream
+  var viewerPeer     = null;
+  let activeCall     = null;
+  let dataConn       = null;
+  let pingInterval   = null;
+  let isStreaming    = false;
 
-  // ── Create a silent audio stream ───────────────────────────────────────────
-  // AudioContext IS supported in OBS Browser Source CEF.
-  // Providing a stream to call.answer() avoids OBS "recvonly" SDP issues.
-  function createSilentStream() {
-    try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc  = audioCtx.createOscillator();  // silent tone
-      const dest = audioCtx.createMediaStreamDestination();
-      const gain = audioCtx.createGain();
-      gain.gain.value = 0; // completely silent
-      osc.connect(gain);
-      gain.connect(dest);
-      osc.start();
-      dbSet('dStream', 'silent audio ready', 'ok');
-      return dest.stream;
-    } catch(e) {
-      console.warn('[Viewer] AudioContext unavailable:', e.message);
-      dbSet('dStream', 'AudioCtx failed: ' + e.message, 'warn');
-      return null;
-    }
-  }
-
-  // ── PeerJS viewer ──────────────────────────────────────────────────────────
   function startViewer() {
-    if (viewerPeer && !viewerPeer.destroyed) viewerPeer.destroy();
+    if (viewerPeer && !viewerPeer.destroyed) {
+      try { viewerPeer.destroy(); } catch(_) {}
+    }
 
-    dbSet('dPeer', 'connecting…', 'warn');
+    dbSet('dPeer', 'connecting to cloud server…', 'warn');
     dbSet('dId', VIEWER_PEER_ID);
 
     viewerPeer = new Peer(VIEWER_PEER_ID, PEER_CFG);
 
     viewerPeer.on('open', (id) => {
-      retryCount = 0;
-      dbSet('dPeer', '✓ connected', 'ok');
+      console.log('[Viewer] Registered with PeerJS as:', id);
+      dbSet('dPeer', '✓ online', 'ok');
       dbSet('dId', id, 'ok');
-      dbSet('dCall', 'waiting for camera…');
-      setOverlay('Waiting for camera…',
-        'iPhone is ready. Tap <strong>Start Streaming</strong>.');
-      console.log('[Viewer] Registered as:', id);
+      dbSet('dCall', 'locating iPhone camera…', 'warn');
+      setOverlay('Waiting for camera…', 'Open camera on iPhone and tap <strong>Start Streaming</strong>.');
+
+      // Start pinging camera to request stream
+      connectToCamera();
+      clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (!isStreaming) {
+          connectToCamera();
+        }
+      }, 3000);
     });
 
-    // ── Camera calls viewer — viewer just answers ──────────────────────────
+    // ── Incoming Media Call from Camera ──────────────────────────────────────
     viewerPeer.on('call', (call) => {
       console.log('[Viewer] Incoming call from camera:', call.peer);
-      dbSet('dCall', 'call received from camera', 'ok');
+      dbSet('dCall', 'incoming call from camera…', 'warn');
 
-      if (activeCall) { activeCall.close(); }
+      if (activeCall) {
+        try { activeCall.close(); } catch(_) {}
+      }
       activeCall = call;
 
-      // Answer with a silent audio stream — fixes OBS CEF "recvonly" SDP issue
-      const silentStream = createSilentStream();
-      if (silentStream) {
-        call.answer(silentStream);
-      } else {
-        call.answer(); // fallback: no stream
-      }
+      // Answer cleanly without providing any dummy stream.
+      // In WebRTC & PeerJS, the viewer is receiver-only.
+      call.answer();
 
       call.on('stream', (remoteStream) => {
-        console.log('[Viewer] Got stream! Tracks:', remoteStream.getTracks().length);
-        dbSet('dStream', `live: ${remoteStream.getTracks().length} track(s)`, 'ok');
-        dbSet('dCall', 'streaming ✓', 'ok');
+        console.log('[Viewer] Received remote stream with tracks:', remoteStream.getTracks().length);
+        isStreaming = true;
+        dbSet('dStream', `live (${remoteStream.getVideoTracks().length} video track)`, 'ok');
+        dbSet('dCall', 'streaming live ✓', 'ok');
 
         const vid = document.getElementById('video');
+        vid.muted = true;
+        vid.defaultMuted = true;
+        vid.playsInline = true;
         vid.srcObject = remoteStream;
-        vid.play().catch(e => console.warn('play():', e));
 
-        document.getElementById('overlay').classList.add('hidden');
-        // Hide debug panel once streaming
-        document.getElementById('debug').classList.add('hidden');
-        bc?.postMessage({ type: 'live' });
+        const onStartPlay = () => {
+          document.getElementById('overlay').classList.add('hidden');
+          document.getElementById('debug').classList.add('hidden');
+          bc?.postMessage({ type: 'live' });
+        };
+
+        vid.onloadedmetadata = () => {
+          const track = remoteStream.getVideoTracks()[0];
+          const settings = track ? track.getSettings() : {};
+          const resText = (settings.width && settings.height) ? `${settings.width}×${settings.height}` : 'HD';
+          dbSet('dStream', `live (${resText})`, 'ok');
+          vid.play().then(onStartPlay).catch(e => console.warn('[Viewer] vid.play():', e));
+        };
+
+        vid.play().then(onStartPlay).catch(e => {
+          console.warn('[Viewer] Autoplay catch:', e);
+        });
       });
 
       call.on('close', () => {
         console.log('[Viewer] Call closed');
-        document.getElementById('video').srcObject = null;
-        document.getElementById('overlay').classList.remove('hidden');
-        document.getElementById('debug').classList.remove('hidden');
-        dbSet('dCall', 'call closed — waiting', 'warn');
-        dbSet('dStream', 'none');
-        setOverlay('Camera stopped…', 'Tap <strong>Start Streaming</strong> again.');
-        bc?.postMessage({ type: 'waiting' });
-        activeCall = null;
+        handleStreamStopped('Camera stopped stream');
       });
 
       call.on('error', (err) => {
         console.warn('[Viewer] Call error:', err);
-        dbSet('dCall', 'call error: ' + (err.message || err), 'err');
-        document.getElementById('video').srcObject = null;
-        document.getElementById('overlay').classList.remove('hidden');
-        document.getElementById('debug').classList.remove('hidden');
-        setOverlay('Stream error…', 'Retrying connection…');
-        activeCall = null;
+        handleStreamStopped('Stream interrupted, retrying…');
       });
     });
 
     viewerPeer.on('error', (err) => {
       console.warn('[Viewer] Peer error:', err.type, err.message);
-      dbSet('dPeer', `error: ${err.type}`, 'err');
-
       if (err.type === 'unavailable-id') {
-        retryCount++;
-        const delay = Math.min(retryCount * 4, 20);
-        dbSet('dCall', `session busy, retry in ${delay}s`, 'warn');
-        setOverlay(`Session busy…`, `Retrying in ${delay} seconds.`);
-        retryTimer = setTimeout(startViewer, delay * 1000);
-      } else if (['network','server-error','socket-error','socket-closed'].includes(err.type)) {
-        dbSet('dCall', `${err.type}, retrying`, 'warn');
-        retryTimer = setTimeout(startViewer, 5000);
+        dbSet('dPeer', 'ID busy, retrying…', 'warn');
+        setTimeout(startViewer, 2000);
+      } else if (err.type === 'peer-unavailable') {
+        // Camera is not yet online or user has not tapped Start Streaming yet
+        dbSet('dPeer', '✓ online', 'ok');
+        dbSet('dCall', 'waiting for camera…', 'warn');
+      } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+        dbSet('dPeer', 'server reconnecting…', 'warn');
+        setTimeout(() => {
+          if (viewerPeer && !viewerPeer.destroyed) viewerPeer.reconnect();
+        }, 3000);
       } else {
-        dbSet('dCall', `${err.type}`, 'err');
-        retryTimer = setTimeout(startViewer, 6000);
+        dbSet('dPeer', err.type, 'err');
       }
     });
 
@@ -241,10 +236,70 @@
     });
   }
 
-  function setOverlay(title, msg) {
-    document.getElementById('overlayTitle').textContent = title;
-    document.getElementById('overlayMsg').innerHTML = msg;
+  // ── Connect / Ping Camera via PeerJS Data Connection ──────────────────────
+  function connectToCamera() {
+    if (isStreaming) return;
+    if (!viewerPeer || viewerPeer.destroyed || viewerPeer.disconnected) return;
+
+    try {
+      if (dataConn && dataConn.open) {
+        dataConn.send('request-stream');
+        return;
+      }
+
+      if (dataConn) {
+        try { dataConn.close(); } catch(_) {}
+        dataConn = null;
+      }
+
+      dataConn = viewerPeer.connect(CAMERA_PEER_ID, { reliable: true });
+
+      dataConn.on('open', () => {
+        console.log('[Viewer] Data channel opened to camera');
+        dbSet('dCall', 'camera linked, requesting stream…', 'ok');
+        dataConn.send('request-stream');
+      });
+
+      dataConn.on('data', (msg) => {
+        console.log('[Viewer] Message from camera:', msg);
+      });
+
+      dataConn.on('close', () => {
+        dataConn = null;
+        if (!isStreaming) {
+          dbSet('dCall', 'searching for camera…', 'warn');
+        }
+      });
+
+      dataConn.on('error', (err) => {
+        dataConn = null;
+      });
+    } catch(e) {
+      console.warn('[Viewer] connectToCamera exception:', e);
+    }
+  }
+
+  function handleStreamStopped(msg) {
+    isStreaming = false;
+    const vid = document.getElementById('video');
+    vid.srcObject = null;
     document.getElementById('overlay').classList.remove('hidden');
+    document.getElementById('debug').classList.remove('hidden');
+    dbSet('dCall', 'waiting for camera…', 'warn');
+    dbSet('dStream', 'none');
+    setOverlay(msg || 'Camera stopped…', 'Tap <strong>Start Streaming</strong> on iPhone to resume.');
+    bc?.postMessage({ type: 'waiting' });
+    activeCall = null;
+  }
+
+  // ── Startup ────────────────────────────────────────────────────────────────
+  if (!sessionId) {
+    setOverlay('Missing Session ID', 'Please add <code>?s=YOUR_SESSION_ID</code> or copy the OBS URL from the control panel.');
+    dbSet('dSession', 'MISSING', 'err');
+    dbSet('dPeer', 'aborted', 'err');
+  } else {
+    dbSet('dSession', sessionId);
+    startViewer();
   }
 </script>
 </body>

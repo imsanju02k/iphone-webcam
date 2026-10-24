@@ -117,9 +117,12 @@ Settings → Safari → Camera → Allow
 - Both devices need internet (for PeerJS signaling)
 - Try refreshing both pages
 
-**OBS shows black screen?**  
-- Tick **"Shutdown source when not visible"** in Browser Source settings
-- Make sure the viewer URL includes `?s=YOURSESSIONID`
+**OBS shows black screen or disconnected?**  
+- Make sure you tapped **Start Streaming** on iPhone
+- Both devices need internet (for PeerJS signaling)
+- Make sure the OBS URL includes `?s=YOURSESSIONID`
+- In OBS Browser Source properties: **Uncheck "Shutdown source when not visible"** so the WebRTC stream stays connected across scene switches
+- If needed, right click the Browser Source in OBS and select **Refresh**
 
 ---
 

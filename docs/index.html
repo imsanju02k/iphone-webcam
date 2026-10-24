@@ -55,6 +55,7 @@
     .card-title {
       font-size:0.68rem; font-weight:700; text-transform:uppercase;
       letter-spacing:0.12em; color:var(--accent); margin-bottom:16px;
+      display:flex; align-items:center; justify-content:space-between;
     }
     .right-col { display:flex; flex-direction:column; gap:20px; }
 
@@ -144,7 +145,7 @@
     .obs-step .oi { font-size:1.1rem; flex-shrink:0; }
     .obs-step .ot { font-size:0.84rem; font-weight:600; margin-bottom:2px; }
     .obs-step .od { font-size:0.76rem; color:var(--muted); line-height:1.5; }
-    .obs-step .od code { background:rgba(99,102,241,0.15); color:#a5b4fc; padding:2px 5px; border-radius:4px; font-size:0.78rem; }
+    .obs-step .od code { background:rgba(99,102,241,0.15); color:#a5b4fc; padding:2px 5px; border-radius:4px; font-size:0.78rem; word-break:break-all; }
     .obs-step .od strong { color:var(--text); }
 
     /* Preview */
@@ -160,7 +161,7 @@
   <div class="logo">📷</div>
   <div>
     <h1>iPhone WebCam</h1>
-    <span>Wireless webcam for OBS · Powered by WebRTC</span>
+    <span>Wireless webcam for OBS Studio · Powered by WebRTC</span>
   </div>
   <div class="pill">
     <div class="dot" id="statusDot"></div>
@@ -203,39 +204,39 @@
         <div class="step active" id="s1">
           <div class="sn">1</div>
           <div class="sc">
-            <h3>Scan QR → Open in Safari</h3>
-            <p>Use <strong>Safari</strong> on iPhone (not Chrome). GitHub Pages = HTTPS, so camera access works instantly — no warnings!</p>
+            <h3>Scan QR Code in Safari</h3>
+            <p>Use <strong>Safari</strong> on your iPhone. GitHub Pages provides HTTPS out of the box, so camera access works seamlessly!</p>
           </div>
         </div>
         <div class="step" id="s2">
           <div class="sn">2</div>
           <div class="sc">
-            <h3>Allow Camera → Tap Start Streaming</h3>
-            <p>Tap <strong>Allow</strong> when Safari asks. Choose <strong>16:9</strong> or <strong>9:16</strong> ratio, then tap Start Streaming.</p>
+            <h3>Allow Camera → Start Streaming</h3>
+            <p>Tap <strong>Allow</strong> for camera permissions, then tap <strong>Start Streaming</strong>. Screen wake lock keeps it awake.</p>
           </div>
         </div>
         <div class="step" id="s3">
           <div class="sn">3</div>
           <div class="sc">
-            <h3>Add OBS URL as Browser Source</h3>
-            <p>In OBS: Sources → <strong>+</strong> → Browser → paste the OBS URL → set 1920×1080.</p>
+            <h3>Add OBS Browser Source</h3>
+            <p>In OBS: Sources → <strong>+</strong> → <strong>Browser</strong> → paste the OBS URL → set <strong>1920×1080</strong>.</p>
           </div>
         </div>
         <div class="step" id="s4">
           <div class="sn">4</div>
           <div class="sc">
-            <h3>🎉 Live in OBS!</h3>
-            <p>iPhone stream appears in OBS instantly. Works on <strong>any network</strong>, not just WiFi!</p>
+            <h3>🎉 Live in OBS Studio!</h3>
+            <p>Your iPhone camera is now an ultra low-latency wireless webcam in OBS Studio!</p>
           </div>
         </div>
       </div>
     </div>
 
     <div class="card obs-card">
-      <div class="card-title">🎬 OBS Browser Source Setup</div>
+      <div class="card-title">🎬 OBS Studio Browser Source Setup</div>
       <div class="res-grid" style="grid-template-columns:1fr">
         <div class="res-box green">
-          <div class="rb-label">▭ 16:9 Landscape (HD)</div>
+          <div class="rb-label">▭ 16:9 Landscape HD (Recommended)</div>
           <div class="rb-val">Width: <strong>1920</strong> × Height: <strong>1080</strong> × FPS: <strong>30</strong></div>
         </div>
       </div>
@@ -245,7 +246,10 @@
 
   <!-- Preview -->
   <div class="card preview-card">
-    <div class="card-title">👁️ Live Preview <span style="font-size:0.68rem;color:var(--muted);font-weight:400">(same stream OBS receives)</span></div>
+    <div class="card-title">
+      <span>👁️ Live Preview <span style="font-size:0.68rem;color:var(--muted);font-weight:400">(Independent stream alongside OBS)</span></span>
+      <button class="refresh-btn" onclick="reloadPreview()" style="font-size:0.7rem;padding:3px 8px;">↺ Reload Preview</button>
+    </div>
     <div class="preview-wrap">
       <iframe id="previewIframe" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
     </div>
@@ -280,8 +284,11 @@
   document.getElementById('cameraUrlVal').textContent   = cameraUrl;
   document.getElementById('viewerUrlVal').textContent   = viewerUrl;
 
-  // ── Preview iframe ────────────────────────────────────────────────────────
-  document.getElementById('previewIframe').src = viewerUrl;
+  // ── Preview iframe (passes &preview=1 so viewer has independent peer ID) ──
+  function reloadPreview() {
+    document.getElementById('previewIframe').src = `${viewerUrl}&preview=1&t=${Date.now()}`;
+  }
+  document.getElementById('previewIframe').src = `${viewerUrl}&preview=1`;
 
   // ── QR Code ──────────────────────────────────────────────────────────────
   document.getElementById('qrFrame').innerHTML = '';
@@ -293,11 +300,11 @@
 
   // ── OBS Steps ────────────────────────────────────────────────────────────
   const steps = [
-    { i:'1️⃣', t:'Open OBS Studio', d:'Make sure OBS is open and your scene is selected.' },
-    { i:'2️⃣', t:'Add Browser Source', d:'Sources → <strong>+</strong> → <strong>Browser</strong> → name it "iPhone Camera".' },
+    { i:'1️⃣', t:'Open OBS Studio', d:'Make sure OBS is open and select the scene where you want your webcam.' },
+    { i:'2️⃣', t:'Add Browser Source', d:'Under Sources, click <strong>+</strong> → <strong>Browser</strong> → name it "iPhone WebCam".' },
     { i:'3️⃣', t:'Paste the OBS URL', d:`URL: <code>${viewerUrl}</code>` },
-    { i:'4️⃣', t:'Set resolution', d:'▭ 16:9 → Width <strong>1920</strong> × <strong>1080</strong> &nbsp;|&nbsp; ▯ 9:16 → Width <strong>1080</strong> × <strong>1920</strong>. FPS: <strong>30</strong>.' },
-    { i:'5️⃣', t:'Click OK → Stream on iPhone', d:'Click OK in OBS. On iPhone tap <strong>Start Streaming</strong>. Stream appears instantly.' },
+    { i:'4️⃣', t:'Set Resolution & Source Settings', d:'Set Width: <strong>1920</strong>, Height: <strong>1080</strong>, FPS: <strong>30</strong>.<br/>Uncheck <em>"Shutdown source when not visible"</em> so switching scenes does not disconnect WebRTC.' },
+    { i:'5️⃣', t:'Stream on iPhone', d:'Tap <strong>Start Streaming</strong> on your iPhone. Video displays instantly in OBS Studio!' },
   ];
   document.getElementById('obsSteps').innerHTML = steps.map(s =>
     `<div class="obs-step"><span class="oi">${s.i}</span><div><div class="ot">${s.t}</div><div class="od">${s.d}</div></div></div>`
@@ -313,22 +320,24 @@
     });
   }
 
-  // ── Status pill (poll iframe title / use BroadcastChannel) ───────────────
-  // Use BroadcastChannel so viewer.html can notify us when camera connects
+  // ── Status updates via BroadcastChannel ──────────────────────────────────
   const bc = new BroadcastChannel('ipcam-status');
   bc.onmessage = (e) => {
     const dot  = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    if (e.data === 'live') {
+    const data = (e.data && e.data.type) || e.data;
+    if (data === 'live') {
       dot.className = 'dot live'; text.textContent = 'iPhone Live ●';
       document.getElementById('s1').className = 'step done';
       document.getElementById('s2').className = 'step done';
-      document.getElementById('s3').className = 'step active';
-    } else if (e.data === 'waiting') {
+      document.getElementById('s3').className = 'step done';
+      document.getElementById('s4').className = 'step active';
+    } else if (data === 'waiting') {
       dot.className = 'dot'; text.textContent = 'Waiting for iPhone…';
       document.getElementById('s1').className = 'step active';
       document.getElementById('s2').className = 'step';
       document.getElementById('s3').className = 'step';
+      document.getElementById('s4').className = 'step';
     }
   };
   document.getElementById('statusText').textContent = 'Waiting for iPhone…';

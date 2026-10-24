@@ -6,7 +6,6 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>iPhone WebCam – Camera</title>
-  <!-- jsDelivr CDN: more reliable in OBS Browser Source CEF -->
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     :root {
@@ -89,6 +88,7 @@
     }
     .rdot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
     .rdot.live { background:var(--red); animation:blink 1.1s ease-in-out infinite; }
+    .rdot.ready { background:var(--green); }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
     .hstats { display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
     .hstat  { font-size:0.69rem; background:rgba(0,0,0,0.5); backdrop-filter:blur(6px); border-radius:6px; padding:3px 8px; color:var(--muted); }
@@ -145,7 +145,7 @@
 <div class="screen hidden" id="welcomeScreen">
   <div class="si">📷</div>
   <h2>iPhone WebCam</h2>
-  <p>Stream wirelessly to OBS at <strong>1080p HD</strong> over WebRTC.</p>
+  <p>Stream wirelessly to OBS Studio at <strong>1080p HD</strong> over WebRTC.</p>
   <button class="action-btn" onclick="startFlow()">Start Camera</button>
 </div>
 
@@ -164,7 +164,7 @@
 
 <div id="connectingOverlay" class="hidden">
   <div class="mini-spin"></div>
-  <div id="connectMsg">Connecting…</div>
+  <div id="connectMsg">Connecting to signaling server…</div>
 </div>
 
 <div id="camView">
@@ -187,11 +187,11 @@
     <div class="resbadge"><span class="rl">●</span> <span id="resl">HD</span></div>
 
     <div class="ctrls">
-      <button class="cbtn" id="flipBtn" onclick="flipCam()">🔄</button>
+      <button class="cbtn" id="flipBtn" onclick="flipCam()" title="Flip Camera">🔄</button>
       <button class="sbtn start" id="mainBtn" onclick="toggleStream()">
         <span>📡</span> Start Streaming
       </button>
-      <button class="cbtn" id="torchBtn" onclick="toggleTorch()">🔦</button>
+      <button class="cbtn" id="torchBtn" onclick="toggleTorch()" title="Flashlight">🔦</button>
     </div>
   </div>
 </div>
@@ -209,10 +209,9 @@
   }
 
   // ── Peer IDs ───────────────────────────────────────────────────────────────
-  // Camera uses "ipcam-c-{id}", viewer uses "ipcam-v-{id}"
-  // Camera CALLS the viewer → no stream needed from viewer side → works in OBS!
+  // Camera holds the fixed session ID: ipcam-c-{sessionId}
+  // Viewers dynamically connect with unique IDs.
   const CAMERA_PEER_ID = `ipcam-c-${sessionId}`;
-  const VIEWER_PEER_ID = `ipcam-v-${sessionId}`;
 
   const PEER_CFG = {
     host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
@@ -221,22 +220,28 @@
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
       ]
     }
   };
 
-  let localStream    = null;
-  let cameraPeer     = null;
-  let streaming      = false;
-  let facingMode     = 'environment';
-  let torchOn        = false;
-  let statsTimer     = null;
-  let peerRetryTimer = null;
-  let callRetryTimer = null;
-  let peerRetries    = 0;
-  let flipping       = false;
-  let activeCall     = null;  // current call to viewer
-  let viewerConnected = false;
+  let localStream      = null;
+  let cameraPeer       = null;
+  let streaming        = false;
+  let facingMode       = 'environment';
+  let torchOn          = false;
+  let statsTimer       = null;
+  let peerRetryTimer   = null;
+  let peerRetries      = 0;
+  let flipping         = false;
+  let wakeLock         = null;
+
+  // Viewers management
+  const connectedViewers = new Set();
+  const viewerDataConns  = new Map();
+  const activeCalls      = new Map();
 
   const RES_LADDER = [
     { label:'1080p', w:1920, h:1080 },
@@ -263,7 +268,25 @@
     document.getElementById('connectingOverlay').classList.add('hidden');
   }
 
-  // ── Camera stream (peer init is separate) ──────────────────────────────────
+  // ── Screen Wake Lock (prevents iOS Safari screen from sleeping while live) ─
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        console.log('[Camera] Screen Wake Lock acquired');
+      }
+    } catch(e) {
+      console.warn('[Camera] Wake lock request error:', e);
+    }
+  }
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+
+  // ── Camera stream ──────────────────────────────────────────────────────────
   async function getCameraStream() {
     for (const res of RES_LADDER) {
       try {
@@ -285,8 +308,13 @@
   }
 
   async function startFlow() {
+    showConnecting('Accessing camera…');
     const result = await getCameraStream();
-    if (result.denied || result.failed || !result.stream) { showScreen('deniedScreen'); return; }
+    if (result.denied || result.failed || !result.stream) {
+      hideConnecting();
+      showScreen('deniedScreen');
+      return;
+    }
 
     localStream = result.stream;
     const vidEl = document.getElementById('vid');
@@ -296,128 +324,182 @@
 
     showCamView();
     startStats();
-    initPeer(); // peer init separate from camera — never re-runs on flip
+    initPeer();
   }
 
-  // ── PeerJS ─────────────────────────────────────────────────────────────────
+  // ── PeerJS Initialization ──────────────────────────────────────────────────
   function initPeer() {
     clearTimeout(peerRetryTimer);
-    if (cameraPeer && !cameraPeer.destroyed) cameraPeer.destroy();
+    if (cameraPeer && !cameraPeer.destroyed) {
+      try { cameraPeer.destroy(); } catch(_) {}
+    }
     cameraPeer = null;
 
     showConnecting('Connecting to signaling server…');
 
     cameraPeer = new Peer(CAMERA_PEER_ID, PEER_CFG);
 
-    cameraPeer.on('open', () => {
+    cameraPeer.on('open', (id) => {
       peerRetries = 0;
       hideConnecting();
-      setStatus('ready');
-      console.log('[Camera] Peer ready:', CAMERA_PEER_ID);
-      // If streaming was already on (e.g. after reconnect), resume calling viewer
-      if (streaming) callViewer();
+      console.log('[Camera] Peer registered as:', id);
+      updateStatusHud();
+
+      // If streaming was already toggled, call any connected viewers
+      if (streaming) {
+        for (const vid of connectedViewers) {
+          callViewer(vid);
+        }
+      }
+    });
+
+    // ── Viewer Connected via Data Channel ────────────────────────────────────
+    cameraPeer.on('connection', (conn) => {
+      const vid = conn.peer;
+      console.log('[Camera] Viewer linked:', vid);
+      connectedViewers.add(vid);
+      viewerDataConns.set(vid, conn);
+      updateViewerBadge();
+
+      // If already streaming, initiate call to this viewer immediately!
+      if (streaming && localStream) {
+        callViewer(vid);
+      }
+
+      conn.on('open', () => {
+        console.log('[Camera] Data channel open with:', vid);
+        if (streaming && localStream) {
+          callViewer(vid);
+        }
+      });
+
+      conn.on('data', (data) => {
+        console.log('[Camera] Data from viewer:', vid, data);
+        if (data === 'request-stream' && streaming && localStream) {
+          callViewer(vid);
+        }
+      });
+
+      conn.on('close', () => {
+        console.log('[Camera] Viewer disconnected:', vid);
+        cleanupViewer(vid);
+      });
+
+      conn.on('error', (err) => {
+        console.warn('[Camera] Viewer error:', vid, err);
+        cleanupViewer(vid);
+      });
     });
 
     cameraPeer.on('error', (err) => {
-      console.warn('[Camera] Peer error:', err.type);
-      if (err.type === 'unavailable-id') {
+      console.warn('[Camera] Peer error:', err.type, err.message);
+      if (err.type === 'peer-unavailable') {
+        return; // Normal when a viewer refreshes or closes
+      } else if (err.type === 'unavailable-id') {
         peerRetries++;
-        const delay = Math.min(peerRetries * 3, 15);
+        const delay = Math.min(peerRetries * 2, 8);
         showConnecting(`Session in use, retrying in ${delay}s…`);
         peerRetryTimer = setTimeout(initPeer, delay * 1000);
       } else if (['network','server-error','socket-error','socket-closed'].includes(err.type)) {
         showConnecting('Connection lost, retrying…');
-        peerRetryTimer = setTimeout(initPeer, 4000);
+        peerRetryTimer = setTimeout(initPeer, 3000);
       }
     });
 
     cameraPeer.on('disconnected', () => {
       showConnecting('Reconnecting…');
-      setTimeout(() => { if (cameraPeer && !cameraPeer.destroyed) cameraPeer.reconnect(); }, 2000);
+      setTimeout(() => {
+        if (cameraPeer && !cameraPeer.destroyed) cameraPeer.reconnect();
+      }, 2000);
     });
   }
 
-  // ── Camera CALLS viewer (viewer.html is OBS Browser Source) ──────────────
-  // Camera → viewer call: no stream needed from viewer, camera sends stream to viewer.
-  // This works in OBS because OBS's viewer doesn't need to provide any media.
-  function callViewer() {
-    clearTimeout(callRetryTimer);
-    if (!streaming || !cameraPeer || cameraPeer.destroyed || !localStream) return;
+  // ── Call a specific Viewer ─────────────────────────────────────────────────
+  function callViewer(viewerId) {
+    if (!streaming || !localStream || !cameraPeer || cameraPeer.destroyed) return;
 
-    console.log('[Camera] Calling viewer:', VIEWER_PEER_ID);
-
-    const call = cameraPeer.call(VIEWER_PEER_ID, localStream);
-
-    if (!call) {
-      // viewer peer not found yet, retry
-      callRetryTimer = setTimeout(callViewer, 4000);
-      return;
+    // Check if an active call to this viewer is already healthy
+    const existing = activeCalls.get(viewerId);
+    if (existing && existing.open) return;
+    if (existing) {
+      try { existing.close(); } catch(_) {}
+      activeCalls.delete(viewerId);
     }
 
-    activeCall = call;
+    console.log('[Camera] Calling viewer:', viewerId);
+    updateStatusHud();
 
-    call.on('stream', () => {
-      // Viewer answered — connection established
-      viewerConnected = true;
-      setStatus('live');
-      updateVc(true);
-      console.log('[Camera] Viewer connected, streaming live');
-    });
+    try {
+      const call = cameraPeer.call(viewerId, localStream);
+      if (!call) return;
 
-    call.on('error', (err) => {
-      console.warn('[Camera] Call error:', err);
-      activeCall = null;
-      viewerConnected = false;
-      updateVc(false);
-      if (streaming) {
-        // Keep showing 'Calling viewer…' while retrying — don't reset to Ready
-        setStatus('connecting');
-        callRetryTimer = setTimeout(callViewer, 4000);
-      }
-    });
+      activeCalls.set(viewerId, call);
 
-    call.on('close', () => {
-      console.log('[Camera] Viewer disconnected');
-      activeCall = null;
-      viewerConnected = false;
-      updateVc(false);
-      if (streaming) {
-        setStatus('connecting');
-        callRetryTimer = setTimeout(callViewer, 3000);
-      }
-    });
+      call.on('stream', () => {
+        console.log('[Camera] Stream acknowledged by viewer:', viewerId);
+        updateStatusHud();
+        updateViewerBadge();
+      });
 
-    // Give viewer 15s to answer before retrying (viewer may still be loading)
-    callRetryTimer = setTimeout(() => {
-      if (!viewerConnected && streaming) {
-        console.log('[Camera] Viewer did not answer in 15s, retrying…');
-        call.close();
-        activeCall = null;
-        callViewer();
-      }
-    }, 15000);
+      call.on('close', () => {
+        console.log('[Camera] Call closed for viewer:', viewerId);
+        activeCalls.delete(viewerId);
+        updateStatusHud();
+        updateViewerBadge();
+      });
+
+      call.on('error', (err) => {
+        console.warn('[Camera] Call error for viewer:', viewerId, err);
+        activeCalls.delete(viewerId);
+        updateStatusHud();
+        updateViewerBadge();
+      });
+
+      updateStatusHud();
+      updateViewerBadge();
+    } catch(e) {
+      console.warn('[Camera] Error making call to:', viewerId, e);
+    }
   }
 
-  // ── Stream toggle ──────────────────────────────────────────────────────────
+  function cleanupViewer(viewerId) {
+    connectedViewers.delete(viewerId);
+    viewerDataConns.delete(viewerId);
+    const call = activeCalls.get(viewerId);
+    if (call) {
+      try { call.close(); } catch(_) {}
+      activeCalls.delete(viewerId);
+    }
+    updateViewerBadge();
+    updateStatusHud();
+  }
+
+  // ── Stream Toggle ──────────────────────────────────────────────────────────
   function toggleStream() {
     if (streaming) {
-      clearTimeout(callRetryTimer);
-      activeCall?.close();
-      activeCall = null;
-      viewerConnected = false;
       streaming = false;
-      setStatus('ready');
-      updateVc(false);
+      releaseWakeLock();
+      // Close all calls to viewers
+      for (const call of activeCalls.values()) {
+        try { call.close(); } catch(_) {}
+      }
+      activeCalls.clear();
       updateBtn();
+      updateStatusHud();
+      updateViewerBadge();
     } else {
       streaming = true;
+      requestWakeLock();
       updateBtn();
-      setStatus('connecting');
-      callViewer(); // camera calls viewer now
+      updateStatusHud();
+      // Call every viewer currently connected
+      for (const vid of connectedViewers) {
+        callViewer(vid);
+      }
     }
   }
 
-  // ── Flip camera (NO peer re-init!) ─────────────────────────────────────────
+  // ── Flip Camera (hot-swap track without disconnecting viewers) ──────────────
   async function flipCam() {
     if (flipping) return;
     flipping = true;
@@ -441,14 +523,14 @@
     vidEl.classList.toggle('mirror', facingMode === 'user');
     document.getElementById('resl').textContent = result.label;
 
-    // Replace the track in the active call without disconnecting
-    if (activeCall) {
-      const newTrack = localStream.getVideoTracks()[0];
-      const pc = activeCall.peerConnection;
+    // Hot-swap the new video track in all active calls seamlessly
+    const newTrack = localStream.getVideoTracks()[0];
+    for (const call of activeCalls.values()) {
+      const pc = call.peerConnection;
       if (pc && newTrack) {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video');
         if (sender) {
-          try { await sender.replaceTrack(newTrack); } catch(e) { console.warn('replaceTrack:', e); }
+          sender.replaceTrack(newTrack).catch(e => console.warn('[Camera] replaceTrack error:', e));
         }
       }
     }
@@ -457,46 +539,73 @@
     document.getElementById('flipBtn').disabled = false;
   }
 
+  // ── Flashlight / Torch Toggle ──────────────────────────────────────────────
   async function toggleTorch() {
-    const t = localStream?.getVideoTracks()[0];
-    if (!t?.getCapabilities?.()?.torch) return;
+    const track = localStream?.getVideoTracks()[0];
+    if (!track?.getCapabilities?.()?.torch) {
+      alert('Flashlight not available on this camera');
+      return;
+    }
     torchOn = !torchOn;
-    await t.applyConstraints({ advanced:[{torch:torchOn}] });
-    document.getElementById('torchBtn').classList.toggle('torch-on', torchOn);
+    try {
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      document.getElementById('torchBtn').classList.toggle('torch-on', torchOn);
+    } catch(e) {
+      console.warn('[Camera] Torch toggle error:', e);
+    }
   }
 
+  // ── Stats / Resolution Loop ────────────────────────────────────────────────
   function startStats() {
     clearInterval(statsTimer);
     statsTimer = setInterval(() => {
       const t = localStream?.getVideoTracks()[0];
       if (t) {
         const s = t.getSettings();
-        document.getElementById('sres').textContent = `${s.width||'?'}×${s.height||'?'}`;
-        document.getElementById('sfps').textContent = `${Math.round(s.frameRate||0)}`;
+        document.getElementById('sres').textContent = `${s.width || '?'}×${s.height || '?'}`;
+        document.getElementById('sfps').textContent = `${Math.round(s.frameRate || 0)}`;
       }
     }, 1500);
   }
 
+  // ── UI Updates ─────────────────────────────────────────────────────────────
   function updateBtn() {
     const b = document.getElementById('mainBtn');
     b.className = streaming ? 'sbtn stop' : 'sbtn start';
-    b.innerHTML = streaming ? '<span>⏹</span> Stop Stream' : '<span>📡</span> Start Streaming';
+    b.innerHTML = streaming ? '<span>⏹</span> Stop Streaming' : '<span>📡</span> Start Streaming';
   }
 
-  function setStatus(state) {
+  function updateStatusHud() {
     const dot = document.getElementById('rdot');
     const lbl = document.getElementById('slabel');
     const bar = document.getElementById('cbar');
-    dot.className = 'rdot'; bar.className = 'cbar';
-    if      (state === 'live')       { dot.classList.add('live'); lbl.textContent = '● LIVE'; bar.classList.add('live'); }
-    else if (state === 'connecting') { lbl.textContent = 'Calling viewer…'; bar.classList.add('connecting'); }
-    else                             { lbl.textContent = 'Ready'; }
+
+    dot.className = 'rdot';
+    bar.className = 'cbar';
+
+    if (streaming) {
+      if (activeCalls.size > 0) {
+        dot.classList.add('live');
+        lbl.textContent = '● LIVE';
+        bar.classList.add('live');
+      } else if (connectedViewers.size > 0) {
+        lbl.textContent = 'Connecting…';
+        bar.classList.add('connecting');
+      } else {
+        lbl.textContent = 'Live (Waiting for OBS)';
+        bar.classList.add('connecting');
+      }
+    } else {
+      dot.classList.add('ready');
+      lbl.textContent = 'Ready';
+    }
   }
 
-  function updateVc(connected) {
+  function updateViewerBadge() {
     const el = document.getElementById('vc');
-    el.style.display = connected ? 'block' : 'none';
-    document.getElementById('vcn').textContent = connected ? 1 : 0;
+    const count = activeCalls.size || connectedViewers.size;
+    el.style.display = count > 0 ? 'block' : 'none';
+    document.getElementById('vcn').textContent = count;
   }
 </script>
 </body>
